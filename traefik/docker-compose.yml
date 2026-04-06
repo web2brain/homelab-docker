@@ -1,0 +1,92 @@
+services:
+
+  cloudflared:
+    image: cloudflare/cloudflared
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=$CF_TUNNEL_TOKEN
+    networks:
+      - traefik
+
+  socket-proxy:
+    image: ghcr.io/wollomatic/socket-proxy:1
+    container_name: socket-proxy-traefik
+    restart: unless-stopped
+    command:
+      - '-loglevel=info'
+      - '-allowfrom=traefik'
+      - '-listenip=0.0.0.0'
+      - '-allowGET=/v1\..*/(version|containers/.*|events.*)'
+      - '-allowHEAD=/_ping'
+      - '-watchdoginterval=3600'
+      - '-stoponwatchdog'
+      - '-shutdowngracetime=10'
+    read_only: true
+    mem_limit: 64M
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
+    user: 65534:995
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    command:
+      #- "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker.endpoint=tcp://socket-proxy-traefik:2375"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entryPoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entryPoints.websecure.address=:443"
+      - "--entryPoints.websecure.transport.respondingTimeouts.readTimeout=600s"
+      - "--entryPoints.websecure.transport.respondingTimeouts.idleTimeout=600s"
+      #- "--entryPoints.websecure.transport.respondingTimeouts.writeTimeout=600s"
+      - "--certificatesresolvers.myresolver.acme.dnschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.myresolver.acme.dnschallenge.resolvers=1.1.1.1:53"
+      #- "--certificatesresolvers.myresolver.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      - "--certificatesresolvers.myresolver.acme.email=${DEFAULT_EMAIL}"
+      - "--certificatesresolvers.myresolver.acme.storage=//letsencrypt/acme.json"
+      - "--providers.docker.allowEmptyServices=true"
+    restart: unless-stopped
+    depends_on:
+      - socket-proxy
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - 80:80
+      - 443:443
+    networks:
+      - traefik
+      - default
+    volumes:
+      - ./letsencrypt/acme.json:/letsencrypt/acme.json        # certificate storage
+    environment:
+       - "CF_DNS_API_TOKEN=${CF_TOKEN}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${NAME}.rule=Host(`${VIRTUAL_HOST}`)"
+      - "traefik.http.routers.${NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${NAME}.tls.certresolver=myresolver"
+      - "traefik.http.routers.${NAME}.tls.domains[0].main=${ROOT_DOMAIN}"   # For internal domain using wildcard               ${ROOT_DOMAIN}
+      - "traefik.http.routers.${NAME}.tls.domains[0].sans=*.${ROOT_DOMAIN}" # For internal domain using wildcard *.            ${ROOT_DOMAIN}
+      - "traefik.http.routers.${NAME}.middlewares=tinyauth"                 # To protect site with tinyauth
+      - "tinyauth.apps.${NAME}.oauth.whitelist=${WHITELIST}"
+      - "traefik.http.routers.${NAME}.service=api@internal"
+      #- 'socket-proxy.allow.get=/v1\..*/(version|containers/.*|events.*)|/_ping' # Alternative to set allowed methods and path for the proxy
+      #- 'socket-proxy.allow.head=/_ping'
+
+networks:
+  traefik:
+    name: traefik

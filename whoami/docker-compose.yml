@@ -1,0 +1,24 @@
+services:
+  whoami:
+    image: traefik/whoami:latest
+    container_name: ${NAME}
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${NAME}.rule=Host(`${VIRTUAL_HOST}`)"
+      - "traefik.http.routers.${NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${NAME}.tls.certresolver=myresolver"
+#      - "traefik.http.routers.${NAME}.tls.domains[1].main=${VIRTUAL_HOST}"   # For external domain ${VIRTUAL_HOST}
+      - "traefik.http.routers.${NAME}.tls.domains[0].main=${ROOT_DOMAIN}"   # For internal domain using wildcard ${ROOT_DOMAIN} 
+      - "traefik.http.routers.${NAME}.tls.domains[0].sans=*.${ROOT_DOMAIN}" # For internal domain using wildcard *.${ROOT_DOMAIN}
+      - "traefik.http.routers.${NAME}.middlewares=tinyauth"                 # To protect site with tinyauth
+      - "tinyauth.apps.${NAME}.oauth.whitelist=${WHITELIST}"                # Only allow users on the whitelist
+#      - "traefik.http.services.$NAME.loadbalancer.server.port=${PORT}"      # Use specific port
+#      - "traefik.docker.network=traefik"                                    # Use treafik network if more than one are in use
+    networks:
+      - traefik
+#      - default # Use own network for communication with other containers
+
+networks:
+  traefik:
+    external: true

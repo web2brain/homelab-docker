@@ -1,0 +1,29 @@
+services:
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:v2
+    container_name: ${NAME}
+    restart: unless-stopped
+    env_file: .env
+#    ports:
+#      - 1411:1411
+    volumes:
+      - "./data:/app/data"
+    # Optional healthcheck
+    healthcheck:
+      test: [ "CMD", "/app/pocket-id", "healthcheck" ]
+      interval: 1m30s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${NAME}.rule=Host(`${VIRTUAL_HOST}`)"
+      - "traefik.http.routers.${NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${NAME}.tls.certresolver=myresolver"
+      - "traefik.http.routers.${NAME}.tls.domains[1].main=${VIRTUAL_HOST}"   # For external domain ${VIRTUAL_HOST}
+    networks:
+      - traefik
+ 
+networks:
+  traefik:
+    external: true

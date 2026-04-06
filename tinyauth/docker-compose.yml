@@ -1,0 +1,62 @@
+services:
+
+  socket-proxy:
+    image: ghcr.io/wollomatic/socket-proxy:1
+    container_name: socket-proxy-tinyauth
+    restart: unless-stopped
+    command:
+      - '-loglevel=info'
+      - '-allowfrom=tinyauth'
+      - '-listenip=0.0.0.0'
+      - '-allowGET=/v1\..*/(version|containers/.*|events.*)|/_ping'
+      - '-allowHEAD=/_ping'
+      - '-watchdoginterval=3600'
+      - '-stoponwatchdog'
+      - '-shutdowngracetime=10'
+    read_only: true
+    mem_limit: 64M
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
+    user: 65534:995
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+  
+  tinyauth:
+    image: ghcr.io/steveiliop56/tinyauth:v5
+    container_name: ${NAME}
+    restart: unless-stopped
+    environment:
+      DOCKER_HOST: tcp://socket-proxy-tinyauth:2375
+      TINYAUTH_APPURL: ${TINYAUTH_URL}
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_CLIENTID: ${POCKETID_CLIENTID}
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_CLIENTSECRET: ${POCKETID_CLIENTSECRET}
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_AUTHURL: ${POCKETID_URL}/authorize
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_TOKENURL: ${POCKETID_URL}/api/oidc/token
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_USERINFOURL: ${POCKETID_URL}/api/oidc/userinfo
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_REDIRECTURL: ${TINYAUTH_URL}/api/oauth/callback/pocketid
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_SCOPES: openid email profile groups
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_NAME: pocketid
+      TINYAUTH_LOG_LEVEL: error
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${NAME}.rule=Host(`${VIRTUAL_HOST}`)"
+      - "traefik.http.routers.${NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${NAME}.tls.certresolver=myresolver"
+      - "traefik.http.routers.${NAME}.tls.domains[1].main=${VIRTUAL_HOST}"   # For external domain ${VIRTUAL_HOST}
+      - "traefik.http.middlewares.tinyauth.forwardauth.address=http://tinyauth:3000/api/auth/traefik"
+      - "traefik.docker.network=traefik"
+      #- 'socket-proxy.allow.get=/v1\..*/(version|containers/.*|events.*)|/_ping'
+      #- 'socket-proxy.allow.head=/_ping'
+    networks:
+      - traefik
+      - default
+    depends_on:
+      - socket-proxy
+
+networks:
+  traefik:
+    external: true
